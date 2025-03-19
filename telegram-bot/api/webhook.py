@@ -1,9 +1,8 @@
-from http.server import BaseHTTPRequestHandler
 import json
 import os
 import logging
 from telegram import Update
-from telegram.ext import Application
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 import asyncio
 
 # تنظیم لاگینگ
@@ -20,57 +19,38 @@ MAILGUN_DOMAIN = os.getenv("MAILGUN_DOMAIN")
 
 # وارد کردن کدهای اصلی بات
 import sys
-import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main import start, handle_text, handle_pdf
 
-# ایجاد و تنظیم اپلیکیشن
-def setup_application():
-    from telegram.ext import Application, CommandHandler, MessageHandler, filters
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Document.PDF, handle_pdf))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    return app
+# ایجاد اپلیکیشن
+application = Application.builder().token(TOKEN).build()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.Document.PDF, handle_pdf))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
 # تابع اصلی برای Vercel
-async def handler(request):
-    """تابع اصلی برای Vercel"""
-    # ایجاد اپلیکیشن
-    application = setup_application()
-    
-    if request.method == "POST":
-        # بررسی مسیر وبهوک
-        if request.url.path == f"/{TOKEN}":
-            try:
-                # دریافت و پردازش داده‌های JSON
-                body = await request.json()
-                
-                # تبدیل به آبجکت Update
-                update = Update.de_json(body, application.bot)
-                
-                # پردازش آپدیت
-                await application.process_update(update)
-                
-                # ارسال پاسخ
-                return {
-                    "statusCode": 200,
-                    "body": json.dumps({"status": "ok"}),
-                }
-            except Exception as e:
-                logging.error(f"خطا در پردازش درخواست: {str(e)}")
-                return {
-                    "statusCode": 500,
-                    "body": str(e),
-                }
-        else:
+async def handler(event, context):
+    try:
+        # بررسی درخواست POST از تلگرام
+        if event["httpMethod"] == "POST":
+            body = json.loads(event["body"])
+            update = Update.de_json(body, application.bot)
+            await application.process_update(update)
             return {
-                "statusCode": 404,
-                "body": "Not found",
+                "statusCode": 200,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"status": "ok"})
             }
-    else:
+        # برای تست با GET
         return {
             "statusCode": 200,
-            "body": "Telegram Bot is running!",
+            "headers": {"Content-Type": "text/plain"},
+            "body": "Telegram Bot is running!"
         }
-
+    except Exception as e:
+        logging.error(f"خطا در پردازش درخواست: {str(e)}")
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "text/plain"},
+            "body": str(e)
+        }
